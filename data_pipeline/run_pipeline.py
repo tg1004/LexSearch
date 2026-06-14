@@ -48,21 +48,40 @@ def step_process() -> None:
     logger.info("Processed: %s | Chunks: %s", len(load_jsonl(processed_path)), len(load_jsonl(chunks_path)))
 
 
-def step_ingest(settings: PipelineSettings, recreate: bool = False) -> None:
-    logger.info("=== STEP: INGEST ===")
+def step_ingest(
+    settings: PipelineSettings,
+    recreate: bool = False,
+    ingest_target: str = "all",
+) -> None:
+    logger.info("=== STEP: INGEST (target=%s) ===", ingest_target)
     processed_path = PROCESSED_DIR / "documents.jsonl"
     chunks_path = CHUNKS_DIR / "chunks.jsonl"
 
     if not processed_path.exists() or not chunks_path.exists():
         raise FileNotFoundError("Processed data missing. Run --step process first.")
 
-    pg_count = store_documents_from_file(processed_path, settings=settings)
-    es_count = index_from_files(chunks_path, processed_path, settings=settings, recreate_index=recreate)
-    qdrant_count = store_from_file(chunks_path, settings=settings, recreate_collection=recreate)
+    pg_count = es_count = qdrant_count = None
 
-    logger.info("PostgreSQL documents: %s", pg_count)
-    logger.info("Elasticsearch chunks indexed: %s", es_count)
-    logger.info("Qdrant chunks stored: %s", qdrant_count)
+    if ingest_target in ("all", "postgres"):
+        pg_count = store_documents_from_file(processed_path, settings=settings)
+        logger.info("PostgreSQL documents: %s", pg_count)
+
+    if ingest_target in ("all", "elasticsearch"):
+        es_count = index_from_files(
+            chunks_path,
+            processed_path,
+            settings=settings,
+            recreate_index=recreate,
+        )
+        logger.info("Elasticsearch chunks indexed: %s", es_count)
+
+    if ingest_target in ("all", "qdrant"):
+        qdrant_count = store_from_file(
+            chunks_path,
+            settings=settings,
+            recreate_collection=recreate,
+        )
+        logger.info("Qdrant chunks stored: %s", qdrant_count)
 
 
 def step_verify(settings: PipelineSettings) -> None:
@@ -104,6 +123,12 @@ def main() -> None:
         action="store_true",
         help="Recreate Elasticsearch index and Qdrant collection before ingest",
     )
+    parser.add_argument(
+        "--ingest-target",
+        choices=["all", "postgres", "elasticsearch", "qdrant"],
+        default="all",
+        help="Which ingest backends to run (default: all)",
+    )
     args = parser.parse_args()
 
     ensure_data_dirs()
@@ -117,7 +142,11 @@ def main() -> None:
         step_process()
 
     if args.step in ("ingest", "all"):
-        step_ingest(settings=settings, recreate=args.recreate)
+        step_ingest(
+            settings=settings,
+            recreate=args.recreate,
+            ingest_target=args.ingest_target,
+        )
 
     if args.step in ("verify", "all"):
         step_verify(settings=settings)

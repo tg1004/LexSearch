@@ -32,6 +32,16 @@ class PipelineSettings:
     scrape_delay_seconds: float
     scrape_timeout_seconds: int
     indiankanoon_base_url: str
+    qdrant_timeout_seconds: int
+    qdrant_upload_batch_size: int
+
+    @property
+    def qdrant_url_normalized(self) -> str:
+        return self.qdrant_url.rstrip("/")
+
+    @property
+    def is_qdrant_cloud(self) -> bool:
+        return "cloud.qdrant.io" in self.qdrant_url_normalized
 
     @classmethod
     def from_env(cls) -> "PipelineSettings":
@@ -58,6 +68,13 @@ class PipelineSettings:
             scrape_delay_seconds=float(os.getenv("SCRAPE_DELAY_SECONDS", "1.5")),
             scrape_timeout_seconds=int(os.getenv("SCRAPE_TIMEOUT_SECONDS", "30")),
             indiankanoon_base_url=os.getenv("INDIANKANOON_BASE_URL", "https://indiankanoon.org"),
+            qdrant_timeout_seconds=int(os.getenv("QDRANT_TIMEOUT_SECONDS", "300")),
+            qdrant_upload_batch_size=int(
+                os.getenv(
+                    "QDRANT_UPLOAD_BATCH_SIZE",
+                    "24" if "cloud.qdrant.io" in os.getenv("QDRANT_URL", "") else "64",
+                )
+            ),
         )
 
 

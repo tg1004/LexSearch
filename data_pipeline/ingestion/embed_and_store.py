@@ -2,28 +2,125 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
+from qdrant_client.http.exceptions import ResponseHandlingException
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
-from data_pipeline.config import PipelineSettings
+from data_pipeline.config import CHUNKS_DIR, PipelineSettings
 from data_pipeline.models import DocumentChunk, ProcessedDocument
 
 logger = logging.getLogger(__name__)
+
+CHECKPOINT_PATH = CHUNKS_DIR.parent / ".qdrant_upload_checkpoint.json"
+MAX_UPSERT_RETRIES = 5
 
 
 def get_qdrant_client(settings: PipelineSettings | None = None) -> QdrantClient:
     settings = settings or PipelineSettings.from_env()
     api_key = (settings.qdrant_api_key or "").strip()
+    client_kwargs: dict[str, Any] = {
+        "url": settings.qdrant_url_normalized,
+        "timeout": settings.qdrant_timeout_seconds,
+    }
     if api_key:
-        return QdrantClient(url=settings.qdrant_url, api_key=api_key)
-    return QdrantClient(url=settings.qdrant_url)
+        client_kwargs["api_key"] = api_key
+    return QdrantClient(**client_kwargs)
+
+
+def _load_checkpoint(settings: PipelineSettings, batch_size: int, total_chunks: int) -> int:
+    if not CHECKPOINT_PATH.exists():
+        return 0
+
+    try:
+        data = json.loads(CHECKPOINT_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        logger.warning("Ignoring corrupt Qdrant checkpoint file")
+        return 0
+
+    if (
+        data.get("collection") != settings.qdrant_collection_name
+        or data.get("qdrant_url") != settings.qdrant_url_normalized
+        or data.get("batch_size") != batch_size
+        or data.get("total_chunks") != total_chunks
+    ):
+        logger.warning("Qdrant checkpoint does not match current run — starting from beginning")
+        return 0
+
+    start_index = int(data.get("next_chunk_index", 0))
+    if start_index > 0:
+        logger.info(
+            "Resuming Qdrant upload from chunk %s/%s (%.1f%%)",
+            start_index,
+            total_chunks,
+            (start_index / total_chunks) * 100,
+        )
+    return start_index
+
+
+def _save_checkpoint(
+    settings: PipelineSettings,
+    batch_size: int,
+    total_chunks: int,
+    next_chunk_index: int,
+) -> None:
+    CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "collection": settings.qdrant_collection_name,
+        "qdrant_url": settings.qdrant_url_normalized,
+        "batch_size": batch_size,
+        "total_chunks": total_chunks,
+        "next_chunk_index": next_chunk_index,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    CHECKPOINT_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _clear_checkpoint() -> None:
+    if CHECKPOINT_PATH.exists():
+        CHECKPOINT_PATH.unlink()
+
+
+def upsert_with_retry(
+    client: QdrantClient,
+    collection_name: str,
+    points: list[qmodels.PointStruct],
+    settings: PipelineSettings,
+) -> None:
+    last_error: Exception | None = None
+    for attempt in range(1, MAX_UPSERT_RETRIES + 1):
+        try:
+            client.upsert(
+                collection_name=collection_name,
+                points=points,
+                wait=True,
+            )
+            return
+        except (ResponseHandlingException, TimeoutError, OSError) as exc:
+            last_error = exc
+            if attempt >= MAX_UPSERT_RETRIES:
+                break
+            delay = min(2 ** (attempt - 1) * 5, 60)
+            logger.warning(
+                "Qdrant upsert failed (attempt %s/%s, %s points): %s — retrying in %ss",
+                attempt,
+                MAX_UPSERT_RETRIES,
+                len(points),
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+
+    raise RuntimeError(f"Qdrant upsert failed after {MAX_UPSERT_RETRIES} attempts") from last_error
 
 
 def ensure_collection(client: QdrantClient, settings: PipelineSettings, recreate: bool = False) -> None:
@@ -31,6 +128,7 @@ def ensure_collection(client: QdrantClient, settings: PipelineSettings, recreate
     if settings.qdrant_collection_name in collections:
         if recreate:
             client.delete_collection(settings.qdrant_collection_name)
+            _clear_checkpoint()
             logger.info("Deleted Qdrant collection %s", settings.qdrant_collection_name)
         else:
             logger.info("Qdrant collection %s already exists", settings.qdrant_collection_name)
@@ -85,20 +183,30 @@ def store_chunks_in_qdrant(
     chunks: list[DocumentChunk],
     settings: PipelineSettings | None = None,
     recreate_collection: bool = False,
-    batch_size: int = 64,
+    batch_size: int | None = None,
     documents_by_id: dict[str, ProcessedDocument] | None = None,
 ) -> int:
     settings = settings or PipelineSettings.from_env()
+    batch_size = batch_size or settings.qdrant_upload_batch_size
     client = get_qdrant_client(settings)
     ensure_collection(client, settings, recreate=recreate_collection)
 
     documents_by_id = documents_by_id or {}
+    start_index = 0 if recreate_collection else _load_checkpoint(settings, batch_size, len(chunks))
+
+    if settings.is_qdrant_cloud:
+        logger.info(
+            "Qdrant Cloud upload: batch_size=%s, timeout=%ss",
+            batch_size,
+            settings.qdrant_timeout_seconds,
+        )
 
     logger.info("Loading embedding model %s ...", settings.embedding_model)
     model = SentenceTransformer(settings.embedding_model)
 
     stored = 0
-    for start in tqdm(range(0, len(chunks), batch_size), desc="Embedding + Qdrant upload"):
+    batch_indices = range(start_index, len(chunks), batch_size)
+    for start in tqdm(batch_indices, desc="Embedding + Qdrant upload"):
         batch = chunks[start : start + batch_size]
         vectors = embed_texts(model, [chunk.text for chunk in batch], batch_size=batch_size)
         points = [
@@ -109,8 +217,11 @@ def store_chunks_in_qdrant(
             )
             for chunk, vector in zip(batch, vectors)
         ]
-        client.upsert(collection_name=settings.qdrant_collection_name, points=points)
+        upsert_with_retry(client, settings.qdrant_collection_name, points, settings)
         stored += len(points)
+        _save_checkpoint(settings, batch_size, len(chunks), start + len(batch))
+
+    _clear_checkpoint()
 
     collection_info = client.get_collection(settings.qdrant_collection_name)
     logger.info(

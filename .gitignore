@@ -23,6 +23,7 @@ dist/
 data_pipeline/data/raw/
 data_pipeline/data/processed/
 data_pipeline/data/chunks/
+data_pipeline/data/.qdrant_upload_checkpoint.json
 
 # IDE / OS
 .idea/
