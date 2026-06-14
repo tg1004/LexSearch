@@ -2,93 +2,100 @@
 
 AI-powered semantic search engine for Indian legal judgements.
 
-## Phase 1 — Foundation
+## Phase 8 — Quality + Deployment
 
-Deliverable: app runs locally; users can sign up and log in.
+Deliverable: live deployed app with CI/CD, quality benchmarks, and production configs.
 
-## Phase 4 — LLM + RAG
+### Quality evaluation (50 queries)
 
-Deliverable: full search with AI answer, citations, and Groq → Gemini fallback.
+```powershell
+cd d:\LexSearch\backend
+.\venv\Scripts\activate
+pip install httpx
+cd ..
+python scripts/eval_search_quality.py --api-url http://localhost:8000
+```
+
+Report saved to `reports/search_quality_report.json`. Each query scored 0–5 on results, citations, legal content, and latency.
+
+### Performance benchmark (<3s p95)
+
+```powershell
+python scripts/benchmark_search.py --api-url http://localhost:8000 --max-p95-ms 3000
+```
+
+### Run all backend tests
+
+```powershell
+cd backend
+pytest -q
+```
+
+### Scale data pipeline to 10,000+ documents
+
+```powershell
+python -m data_pipeline.run_pipeline --step all --limit 10000
+# Or ingest-only after scrape/process:
+python -m data_pipeline.run_pipeline --step ingest --ingest-target qdrant
+```
+
+Tune chunking via `.env`: `CHUNK_SIZE=800`, `CHUNK_OVERLAP=150`
+
+### Deploy backend (Railway)
+
+1. Push repo to GitHub
+2. [Railway](https://railway.app) → New Project → Deploy from GitHub
+3. Add **PostgreSQL** and **Redis** plugins
+4. Set env vars from [`.env.production.example`](.env.production.example)
+5. Railway reads [`railway.toml`](railway.toml) — builds `backend/Dockerfile`, runs migrations on start
+
+### Deploy frontend (Vercel)
+
+1. [Vercel](https://vercel.com) → Import GitHub repo
+2. Set **Root Directory** to `frontend`
+3. Add env var: `VITE_API_URL=https://your-backend.up.railway.app`
+4. Deploy — uses [`frontend/vercel.json`](frontend/vercel.json)
+
+### CI/CD
+
+GitHub Actions runs on push/PR to `main`: backend pytest, frontend build, pipeline tests. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+---
+
+## Phase 1–7 Summary
+
+See [`LexSearch_Architecture.md`](LexSearch_Architecture.md) for the full specification.
 
 ```powershell
 docker compose up postgres redis elasticsearch qdrant -d
 cd backend
 .\venv\Scripts\activate
-pip install -r requirements.txt
+alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-- `POST /api/search` — hybrid retrieval + AI answer + citations
-- `GET /api/providers` — Groq / Gemini / Auto availability
-
-## Phase 3 — Search Backend
-
-Deliverable: `POST /api/search` returns hybrid-ranked results (no LLM yet).
-
-```powershell
-docker compose up postgres redis elasticsearch qdrant -d
-cd backend
-..\backend\venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
-
-Test at http://localhost:8000/docs → `POST /api/search`
-
-## Phase 2 — Data Pipeline
-
-Deliverable: 1000 judgements searchable in Qdrant and Elasticsearch.
-
-See [`data_pipeline/README.md`](data_pipeline/README.md) for full instructions.
-
-```powershell
-docker compose up postgres elasticsearch qdrant -d
-python -m data_pipeline.run_pipeline --step all --limit 1000
-```
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000/docs
+- Health: http://localhost:8000/api/health
 
 ## Prerequisites
 
 - Docker & Docker Compose
-- Node.js 18+ (for local frontend dev)
-- Python 3.11+ (for local backend dev)
+- Node.js 20+
+- Python 3.11+
 
 ## Quick Start (Docker)
 
-```bash
-# Copy environment template
+```powershell
 cp .env.example .env
-
-# Start all services
 docker compose up --build
-
-# Run database migrations (first time)
 docker compose exec backend alembic upgrade head
 ```
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API docs: http://localhost:8000/docs
-- Health check: http://localhost:8000/api/health
+## Stack verification
 
-## Local Development (without Docker for app code)
-
-```bash
-# Start infrastructure only
-docker compose up postgres redis elasticsearch -d
-
-# Backend
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env
-alembic upgrade head
-uvicorn app.main:app --reload --port 8000
-
-# Frontend (separate terminal)
-cd frontend
-npm install
-npm run dev
+```powershell
+.\scripts\verify_stack.ps1
 ```
 
 ## Project Structure

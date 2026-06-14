@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="LexSearch API",
     description="AI-powered semantic search for Indian legal judgements",
-    version="0.7.0",
+    version="0.8.0",
     lifespan=lifespan,
 )
 

@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from data_pipeline.config import PipelineSettings
 from data_pipeline.models import DocumentChunk, ProcessedDocument
 
-CHUNK_SIZE = 800
-CHUNK_OVERLAP = 150
+DEFAULT_CHUNK_SIZE = 800
+DEFAULT_CHUNK_OVERLAP = 150
 SEPARATORS = ["\n\n", "\n", ". ", " "]
 
 
-def build_splitter(chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP) -> RecursiveCharacterTextSplitter:
+def build_splitter(
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+) -> RecursiveCharacterTextSplitter:
     return RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -20,7 +24,11 @@ def build_splitter(chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVER
     )
 
 
-def chunk_document(document: ProcessedDocument, splitter: RecursiveCharacterTextSplitter | None = None) -> list[DocumentChunk]:
+def chunk_document(
+    document: ProcessedDocument,
+    splitter: RecursiveCharacterTextSplitter | None = None,
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+) -> list[DocumentChunk]:
     splitter = splitter or build_splitter()
     text = document.full_text
     if not text:
@@ -37,7 +45,7 @@ def chunk_document(document: ProcessedDocument, splitter: RecursiveCharacterText
         if char_start == -1:
             char_start = search_start
         char_end = char_start + len(chunk_text)
-        search_start = max(0, char_end - CHUNK_OVERLAP)
+        search_start = max(0, char_end - chunk_overlap)
 
         chunks.append(
             DocumentChunk(
@@ -56,9 +64,15 @@ def chunk_document(document: ProcessedDocument, splitter: RecursiveCharacterText
     return chunks
 
 
-def chunk_documents(documents: list[ProcessedDocument]) -> list[DocumentChunk]:
-    splitter = build_splitter()
+def chunk_documents(
+    documents: list[ProcessedDocument],
+    settings: PipelineSettings | None = None,
+) -> list[DocumentChunk]:
+    settings = settings or PipelineSettings.from_env()
+    splitter = build_splitter(settings.chunk_size, settings.chunk_overlap)
     all_chunks: list[DocumentChunk] = []
     for document in documents:
-        all_chunks.extend(chunk_document(document, splitter=splitter))
+        all_chunks.extend(
+            chunk_document(document, splitter=splitter, chunk_overlap=settings.chunk_overlap)
+        )
     return all_chunks

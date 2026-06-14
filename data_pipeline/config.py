@@ -34,6 +34,8 @@ class PipelineSettings:
     indiankanoon_base_url: str
     qdrant_timeout_seconds: int
     qdrant_upload_batch_size: int
+    chunk_size: int
+    chunk_overlap: int
 
     @property
     def qdrant_url_normalized(self) -> str:
@@ -75,6 +77,8 @@ class PipelineSettings:
                     "24" if "cloud.qdrant.io" in os.getenv("QDRANT_URL", "") else "64",
                 )
             ),
+            chunk_size=int(os.getenv("CHUNK_SIZE", "800")),
+            chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "150")),
         )
 
 

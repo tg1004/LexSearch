@@ -28,7 +28,8 @@ Do not guess or fill gaps from general knowledge.
 ## Format
 - Length: 5–10 sentences for straightforward questions; up to 15 sentences or short bullets for complex topics.
 - No filler preambles — start directly with the answer.
-- Do not repeat the question back to the user."""
+- Do not repeat the question back to the user.
+- Prefer citing 2–4 strongest excerpts rather than citing every sentence with the same source."""
 
 
 def build_rag_prompt(query: str, chunks: list[ChunkResult]) -> str:
