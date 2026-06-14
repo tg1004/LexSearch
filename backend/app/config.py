@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +50,19 @@ class Settings(BaseSettings):
     document_summary_cache_ttl_seconds: int = 86400
     processed_documents_path: str = str(PROJECT_ROOT / "data_pipeline" / "data" / "processed" / "documents.jsonl")
     chunks_data_path: str = str(PROJECT_ROOT / "data_pipeline" / "data" / "chunks" / "chunks.jsonl")
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: object) -> object:
+        """Railway/Heroku provide postgresql:// — async SQLAlchemy needs postgresql+asyncpg://."""
+        if not isinstance(value, str):
+            return value
+        url = value.strip()
+        if url.startswith("postgres://"):
+            return "postgresql+asyncpg://" + url[len("postgres://") :]
+        if url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+            return "postgresql+asyncpg://" + url[len("postgresql://") :]
+        return url
 
     @property
     def qdrant_api_key_or_none(self) -> str | None:
