@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-white text-[#333333] font-sans antialiased;
+}
+
+@media print {
+  header,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  main {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  .judgement-content p,
+  .judgement-content h3,
+  .judgement-content h4 {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

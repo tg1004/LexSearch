@@ -1,0 +1,1 @@
+"""LexSearch data ingestion pipeline."""
