@@ -59,7 +59,7 @@ async def test_get_document_endpoint(sample_document: DocumentResponse):
 @pytest.mark.asyncio
 async def test_get_highlight_endpoint():
     mock_service = MagicMock()
-    mock_service.get_highlight = MagicMock(
+    mock_service.get_highlight = AsyncMock(
         return_value=HighlightResponse(
             document_id="1108032",
             chunk_index=3,

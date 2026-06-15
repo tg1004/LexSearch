@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -20,13 +21,32 @@ async def save_search_history(
     provider_used: str | None,
     result_count: int,
 ) -> None:
-    entry = SearchHistory(
-        user_id=user_id,
-        query=query.strip(),
-        provider_used=provider_used,
-        result_count=result_count,
+    normalized_query = query.strip()
+    result = await db.execute(
+        select(SearchHistory).where(
+            SearchHistory.user_id == user_id,
+            func.lower(SearchHistory.query) == normalized_query.lower(),
+        ).order_by(SearchHistory.searched_at.desc())
     )
-    db.add(entry)
+    matches = list(result.scalars().all())
+
+    if matches:
+        keeper = matches[0]
+        keeper.query = normalized_query
+        keeper.provider_used = provider_used
+        keeper.result_count = result_count
+        keeper.searched_at = datetime.now(UTC)
+        for duplicate in matches[1:]:
+            await db.delete(duplicate)
+    else:
+        db.add(
+            SearchHistory(
+                user_id=user_id,
+                query=normalized_query,
+                provider_used=provider_used,
+                result_count=result_count,
+            )
+        )
     await db.flush()
 
     subquery = (
@@ -45,9 +65,21 @@ async def list_search_history(db: AsyncSession, user_id: UUID) -> list[SearchHis
         select(SearchHistory)
         .where(SearchHistory.user_id == user_id)
         .order_by(SearchHistory.searched_at.desc())
-        .limit(MAX_HISTORY_ITEMS)
+        .limit(MAX_HISTORY_ITEMS * 2)
     )
-    return list(result.scalars().all())
+    items = list(result.scalars().all())
+
+    seen: set[str] = set()
+    deduped: list[SearchHistory] = []
+    for item in items:
+        key = item.query.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+        if len(deduped) >= MAX_HISTORY_ITEMS:
+            break
+    return deduped
 
 
 async def delete_search_history_entry(db: AsyncSession, user_id: UUID, entry_id: UUID) -> bool:

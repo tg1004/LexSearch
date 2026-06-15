@@ -84,12 +84,20 @@ async def health_check():
     try:
         import httpx
 
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            response = await client.get(f"{settings.elasticsearch_url}/_cluster/health")
+        headers: dict[str, str] = {}
+        if settings.elasticsearch_api_key_or_none:
+            headers["Authorization"] = f"ApiKey {settings.elasticsearch_api_key_or_none}"
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                f"{settings.elasticsearch_url.rstrip('/')}/_cluster/health",
+                headers=headers,
+            )
             if response.status_code == 200:
                 checks["elasticsearch"] = "ok"
             else:
                 checks["elasticsearch"] = "error"
+                logger.warning("Elasticsearch health returned %s", response.status_code)
     except Exception:
         checks["elasticsearch"] = "error"
         logger.exception("Elasticsearch health check failed")

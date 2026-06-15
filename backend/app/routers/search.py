@@ -41,7 +41,7 @@ async def _save_history(
 
 
 @router.post("/search", response_model=SearchResponse)
-@limiter.limit("20/minute")
+@limiter.limit("60/minute")
 async def search(
     request: Request,
     body: SearchRequest,

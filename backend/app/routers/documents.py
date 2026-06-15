@@ -57,4 +57,4 @@ async def get_document_highlight(
     chunk_index: int,
     document_service: DocumentService = Depends(get_document_service),
 ) -> HighlightResponse:
-    return document_service.get_highlight(document_id, chunk_index)
+    return await document_service.get_highlight(document_id, chunk_index)

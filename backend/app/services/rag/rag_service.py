@@ -10,6 +10,7 @@ from app.services.cache.redis_cache import RedisCache, build_search_cache_key
 from app.services.llm.llm_service import AllProvidersFailedError, LLMService, get_llm_service
 from app.services.rag.citation_parser import parse_citations
 from app.services.rag.prompt_builder import build_rag_prompt, build_related_questions_prompt
+from app.services.search.filter_builder import normalized_year_bounds
 from app.services.search.models import ChunkResult
 from app.services.search.search_service import SearchService, get_search_service
 
@@ -82,7 +83,12 @@ class RAGService:
         sources = [self._chunk_to_source(chunk) for chunk in sources_page]
 
         related_questions: list[str] = []
-        if provider_used and answer and answer not in (NO_RESULTS_ANSWER, LLM_FAILURE_ANSWER):
+        if (
+            provider_used
+            and answer
+            and answer not in (NO_RESULTS_ANSWER, LLM_FAILURE_ANSWER)
+            and not self._has_active_filters(filters)
+        ):
             related_questions = await self._generate_related_questions(
                 query, answer, preferred_provider
             )
@@ -101,6 +107,11 @@ class RAGService:
             await self.redis_cache.set_search_response(cache_key, response)
 
         return response
+
+    @staticmethod
+    def _has_active_filters(filters: SearchFilters) -> bool:
+        year_from, year_to = normalized_year_bounds(filters)
+        return bool(filters.court or filters.case_type or filters.outcome or year_from or year_to)
 
     async def _generate_related_questions(
         self,

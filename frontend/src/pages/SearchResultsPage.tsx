@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import AIAnswer from '../components/results/AIAnswer';
 import RelatedQuestions from '../components/results/RelatedQuestions';
@@ -15,6 +15,7 @@ import { usePreferencesStore } from '../store/preferencesStore';
 import { EMPTY_FILTERS, useSearchStore } from '../store/searchStore';
 import type { PreferredProvider, SearchFilters as SearchFiltersType } from '../types/search.types';
 import { MAX_YEAR, MIN_YEAR } from '../types/search.types';
+import { debounce } from '../utils/debounce';
 
 function parseListParam(value: string | null): string[] {
   if (!value) return [];
@@ -72,20 +73,29 @@ function buildSearchParams(
 export default function SearchResultsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { preferredProvider, setPreferredProvider } = usePreferencesStore();
-  const { filters, setFilters, resetFilters } = useSearchStore();
+  const { setFilters, resetFilters } = useSearchStore();
 
   const queryFromUrl = searchParams.get('q') ?? '';
   const providerFromUrl = (searchParams.get('provider') as PreferredProvider | null) ?? preferredProvider;
+  const filtersFromUrl = useMemo(
+    () => parseFiltersFromParams(searchParams),
+    [searchParams],
+  );
 
   const [draftQuery, setDraftQuery] = useState(queryFromUrl);
+  const [draftFilters, setDraftFilters] = useState(filtersFromUrl);
 
   useEffect(() => {
     setDraftQuery(queryFromUrl);
   }, [queryFromUrl]);
 
   useEffect(() => {
-    setFilters(parseFiltersFromParams(searchParams));
-  }, [searchParams, setFilters]);
+    setDraftFilters(filtersFromUrl);
+  }, [filtersFromUrl]);
+
+  useEffect(() => {
+    setFilters(filtersFromUrl);
+  }, [filtersFromUrl, setFilters]);
 
   useEffect(() => {
     if (providerFromUrl) {
@@ -103,7 +113,7 @@ export default function SearchResultsPage() {
   } = useSearch({
     query: queryFromUrl,
     preferredProvider: providerFromUrl,
-    filters,
+    filters: filtersFromUrl,
     enabled: queryFromUrl.trim().length > 0,
   });
 
@@ -129,9 +139,9 @@ export default function SearchResultsPage() {
     data.result_count === 0 &&
     data.answer.startsWith('No results found');
 
-  const runSearch = (
+  const runSearch = useCallback((
     nextQuery: string,
-    nextFilters: SearchFiltersType = filters,
+    nextFilters: SearchFiltersType = filtersFromUrl,
     nextProvider: PreferredProvider = providerFromUrl,
   ) => {
     const trimmed = nextQuery.trim();
@@ -139,7 +149,16 @@ export default function SearchResultsPage() {
 
     const params = buildSearchParams(trimmed, nextFilters, nextProvider);
     setSearchParams(params);
-  };
+  }, [filtersFromUrl, providerFromUrl, setSearchParams]);
+
+  const debouncedFilterSearch = useMemo(
+    () => debounce((nextFilters: SearchFiltersType) => {
+      runSearch(queryFromUrl, nextFilters);
+    }, 500),
+    [queryFromUrl, runSearch],
+  );
+
+  useEffect(() => () => debouncedFilterSearch.cancel?.(), [debouncedFilterSearch]);
 
   const handleCitationClick = (number: number) => {
     const element = document.getElementById(`source-${number}`);
@@ -180,13 +199,14 @@ export default function SearchResultsPage() {
           <div className="lg:col-span-3">
             <div className="bg-white border border-gray-200 rounded-2xl p-5 lg:sticky lg:top-6">
               <SearchFilters
-                filters={filters}
+                filters={draftFilters}
                 onChange={(nextFilters) => {
-                  setFilters(nextFilters);
-                  runSearch(queryFromUrl, nextFilters);
+                  setDraftFilters(nextFilters);
+                  debouncedFilterSearch(nextFilters);
                 }}
                 onClear={() => {
                   resetFilters();
+                  setDraftFilters({ ...EMPTY_FILTERS });
                   runSearch(queryFromUrl, { ...EMPTY_FILTERS });
                 }}
               />
@@ -199,7 +219,7 @@ export default function SearchResultsPage() {
               selected={providerFromUrl}
               onChange={(provider) => {
                 setPreferredProvider(provider);
-                runSearch(queryFromUrl, filters, provider);
+                runSearch(queryFromUrl, filtersFromUrl, provider);
               }}
               isLoading={providersLoading}
             />
@@ -230,6 +250,7 @@ export default function SearchResultsPage() {
                       type="button"
                       onClick={() => {
                         resetFilters();
+                        setDraftFilters({ ...EMPTY_FILTERS });
                         runSearch(queryFromUrl, { ...EMPTY_FILTERS });
                       }}
                       className="text-sm text-accent hover:underline"

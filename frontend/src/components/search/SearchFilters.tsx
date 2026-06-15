@@ -62,9 +62,11 @@ export default function SearchFilters({ filters, onChange, onClear }: SearchFilt
               min={MIN_YEAR}
               max={MAX_YEAR}
               value={filters.year_from ?? MIN_YEAR}
-              onChange={(event) =>
-                onChange({ ...filters, year_from: Number(event.target.value) })
-              }
+              onChange={(event) => {
+                const yearFrom = Number(event.target.value);
+                const yearTo = Math.max(yearFrom, filters.year_to ?? MAX_YEAR);
+                onChange({ ...filters, year_from: yearFrom, year_to: yearTo });
+              }}
               className="w-full accent-accent"
             />
           </div>
@@ -75,9 +77,11 @@ export default function SearchFilters({ filters, onChange, onClear }: SearchFilt
               min={MIN_YEAR}
               max={MAX_YEAR}
               value={filters.year_to ?? MAX_YEAR}
-              onChange={(event) =>
-                onChange({ ...filters, year_to: Number(event.target.value) })
-              }
+              onChange={(event) => {
+                const yearTo = Number(event.target.value);
+                const yearFrom = Math.min(yearTo, filters.year_from ?? MIN_YEAR);
+                onChange({ ...filters, year_from: yearFrom, year_to: yearTo });
+              }}
               className="w-full accent-accent"
             />
           </div>

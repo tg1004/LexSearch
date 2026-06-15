@@ -14,12 +14,16 @@ export interface UseSearchParams {
 function buildApiFilters(filters?: SearchFilters): SearchFilters | undefined {
   if (!filters) return undefined;
 
-  const yearFrom =
+  let yearFrom =
     filters.year_from !== undefined && filters.year_from > MIN_YEAR
       ? filters.year_from
       : undefined;
-  const yearTo =
+  let yearTo =
     filters.year_to !== undefined && filters.year_to < MAX_YEAR ? filters.year_to : undefined;
+
+  if (yearFrom !== undefined && yearTo !== undefined && yearFrom > yearTo) {
+    [yearFrom, yearTo] = [yearTo, yearFrom];
+  }
 
   return {
     court: filters.court,
@@ -51,5 +55,6 @@ export function useSearch({
     enabled: enabled && trimmedQuery.length > 0,
     retry: 1,
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
