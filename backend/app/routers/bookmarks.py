@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models.document_meta import Document
 from app.models.user import User
 from app.schemas.bookmark import BookmarkCreate, BookmarkListResponse, BookmarkResponse, BookmarkUpdate
+from app.services.document.document_service import ensure_document_record
 from app.services.user import bookmark_service
 from app.utils.auth_utils import get_current_user
 
@@ -47,10 +48,7 @@ async def create_bookmark(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BookmarkResponse:
-    doc_result = await db.execute(select(Document).where(Document.id == body.document_id))
-    if doc_result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-
+    doc = await ensure_document_record(db, body.document_id)
     bookmark = await bookmark_service.create_bookmark(
         db,
         current_user.id,
@@ -58,7 +56,6 @@ async def create_bookmark(
         body.folder_name,
         body.notes,
     )
-    doc = (await db.execute(select(Document).where(Document.id == body.document_id))).scalar_one()
     return _to_response(bookmark, doc)
 
 

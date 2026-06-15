@@ -43,6 +43,7 @@ export default function DocumentPage() {
   const [bookmarkFolder, setBookmarkFolder] = useState('General');
   const [bookmarkNotes, setBookmarkNotes] = useState('');
   const [bookmarkSaved, setBookmarkSaved] = useState(false);
+  const [bookmarkError, setBookmarkError] = useState<string | null>(null);
 
   const {
     data: document,
@@ -106,27 +107,39 @@ export default function DocumentPage() {
 
   const existingBookmark = items.find((item) => item.document_id === documentId);
 
+  const openBookmarkModal = () => {
+    setBookmarkError(null);
+    setShowBookmarkModal(true);
+  };
+
   const handleBookmarkClick = () => {
     if (!isAuthenticated) {
-      setShowBookmarkModal(true);
+      openBookmarkModal();
       return;
     }
     if (existingBookmark) {
       setBookmarkSaved(true);
       return;
     }
-    setShowBookmarkModal(true);
+    openBookmarkModal();
   };
 
   const handleSaveBookmark = async () => {
     if (!documentId) return;
-    await addBookmark({
-      document_id: documentId,
-      folder_name: bookmarkFolder,
-      notes: bookmarkNotes || undefined,
-    });
-    setBookmarkSaved(true);
-    setShowBookmarkModal(false);
+    setBookmarkError(null);
+    try {
+      await addBookmark({
+        document_id: documentId,
+        folder_name: bookmarkFolder,
+        notes: bookmarkNotes || undefined,
+      });
+      setBookmarkSaved(true);
+      setShowBookmarkModal(false);
+    } catch (err) {
+      setBookmarkError(
+        err instanceof Error ? err.message : 'Failed to save bookmark. Please try again.',
+      );
+    }
   };
 
   const handleJumpToHighlight = () => {
@@ -305,6 +318,11 @@ export default function DocumentPage() {
                       placeholder="Why you saved this case..."
                     />
                   </div>
+                  {bookmarkError && (
+                    <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                      {bookmarkError}
+                    </p>
+                  )}
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -312,7 +330,7 @@ export default function DocumentPage() {
                       disabled={isSaving}
                       className="flex-1 py-2 text-sm font-medium text-white bg-accent rounded-lg hover:bg-accent/90 disabled:opacity-60"
                     >
-                      Save
+                      {isSaving ? 'Saving...' : 'Save'}
                     </button>
                     <button
                       type="button"

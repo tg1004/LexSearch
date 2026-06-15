@@ -72,6 +72,42 @@ def _document_from_es_metadata(
     )
 
 
+async def ensure_document_record(
+    db: AsyncSession,
+    document_id: str,
+    es_store: ElasticsearchDocumentStore | None = None,
+) -> Document:
+    """Ensure a document row exists in PostgreSQL (sync from Elasticsearch when missing)."""
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    existing = result.scalar_one_or_none()
+    if existing:
+        return existing
+
+    store = es_store or get_elasticsearch_document_store()
+    meta = await store.get_document_metadata(document_id)
+    if meta is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    full_text = await store.get_full_text(document_id)
+    judges = _coerce_judges(meta.get("judges")) or None
+
+    document = Document(
+        id=document_id,
+        title=str(meta.get("title") or document_id)[:500],
+        court=meta.get("court"),
+        date=_parse_date(meta.get("date")),
+        case_type=meta.get("case_type"),
+        outcome=meta.get("outcome"),
+        judges=judges,
+        full_text_length=len(full_text) if full_text else None,
+        url=meta.get("url"),
+    )
+    db.add(document)
+    await db.flush()
+    await db.refresh(document)
+    return document
+
+
 class DocumentService:
     def __init__(
         self,
