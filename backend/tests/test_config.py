@@ -17,3 +17,9 @@ def test_preserves_asyncpg_url():
     url = "postgresql+asyncpg://postgres:password@localhost:5432/lexsearch"
     settings = Settings(database_url=url)
     assert settings.database_url == url
+
+
+def test_strips_trailing_slash_from_frontend_url():
+    settings = Settings(frontend_url="https://lex-search-ten.vercel.app/")
+    assert settings.frontend_url == "https://lex-search-ten.vercel.app"
+    assert "https://lex-search-ten.vercel.app" in settings.cors_origins

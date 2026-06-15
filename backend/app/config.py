@@ -64,6 +64,28 @@ class Settings(BaseSettings):
             return "postgresql+asyncpg://" + url[len("postgresql://") :]
         return url
 
+    @field_validator("frontend_url", mode="before")
+    @classmethod
+    def normalize_frontend_url(cls, value: object) -> object:
+        # Browsers send Origin without trailing slash — must match exactly for CORS.
+        if isinstance(value, str):
+            return value.strip().rstrip("/")
+        return value
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return list(
+            dict.fromkeys(
+                [
+                    self.frontend_url,
+                    "http://localhost:3000",
+                    "http://127.0.0.1:3000",
+                    "http://localhost:5173",
+                    "http://127.0.0.1:5173",
+                ]
+            )
+        )
+
     @property
     def qdrant_api_key_or_none(self) -> str | None:
         key = (self.qdrant_api_key or "").strip()
